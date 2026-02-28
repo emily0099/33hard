@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>艾蜜莉的33Hard自律挑戰</title>
+    <style>
+        :root {
+            --primary: #6c5ce7;
+            --secondary: #a29bfe;
+            --success: #00b894;
+            --bg: #f9f9fb;
+            --card-bg: #ffffff;
+        }
+
+        body {
+            font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+            background-color: var(--bg);
+            margin: 0; padding: 20px;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        .container { max-width: 600px; width: 100%; }
+
+        header { text-align: center; margin-bottom: 20px; }
+        h1 { color: var(--primary); margin-bottom: 5px; }
+        .quote { font-style: italic; color: #666; font-size: 0.9rem; }
+
+        .stats-box {
+            background: var(--primary); color: white;
+            padding: 20px; border-radius: 15px; margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(108, 92, 231, 0.3);
+        }
+
+        .progress-container { background: rgba(255,255,255,0.2); border-radius: 10px; height: 12px; margin: 10px 0; }
+        .progress-bar { background: var(--success); height: 100%; border-radius: 10px; width: 0%; transition: 0.5s; }
+
+        .day-selector {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(45px, 1fr));
+            gap: 8px; margin-bottom: 20px;
+        }
+
+        .day-dot {
+            aspect-ratio: 1; border: 1px solid #ddd; border-radius: 8px;
+            background: white; cursor: pointer; display: flex;
+            align-items: center; justify-content: center; font-size: 0.8rem;
+        }
+
+        .day-dot.active { border: 2px solid var(--primary); font-weight: bold; transform: scale(1.1); }
+        .day-dot.done { background: var(--success); color: white; border-color: var(--success); }
+
+        .task-card {
+            background: white; padding: 20px; border-radius: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+
+        .task-item {
+            display: flex; align-items: flex-start; margin-bottom: 15px;
+            padding-bottom: 10px; border-bottom: 1px solid #f0f0f0;
+        }
+
+        .task-item input { margin-right: 15px; margin-top: 5px; transform: scale(1.3); }
+        .task-text b { display: block; color: var(--primary); margin-bottom: 2px; }
+        .task-text small { color: #888; display: block; }
+
+        textarea { width: 100%; border: 1px solid #ddd; border-radius: 8px; padding: 10px; box-sizing: border-box; }
+
+        .footer-btns { margin-top: 30px; text-align: center; }
+        .btn-reset { background: none; border: none; color: #e74c3c; cursor: pointer; text-decoration: underline; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>艾蜜莉的33Hard</h1>
+        <p class="quote">「紀律會帶我們到那些光靠情緒到不了的地方！」</p>
+    </header>
+
+    <div class="stats-box">
+        <div>總挑戰進度：<span id="totalPercent">0%</span></div>
+        <div class="progress-container"><div id="totalBar" class="progress-bar"></div></div>
+        <div style="font-size: 0.9rem;">全勤天數：<span id="completedDaysCount">0</span> / 33</div>
+    </div>
+
+    <div id="daySelector" class="day-selector"></div>
+
+    <div class="task-card">
+        <h3 id="currentDayTitle">第 1 天</h3>
+        <p id="dailyRateText" style="color: var(--success); font-weight: bold;">本日達成率：0%</p>
+        
+        <div id="taskList">
+            </div>
+
+        <div style="margin-top: 15px;">
+            <b>每日一句感受</b>
+            <textarea id="dailyReflection" placeholder="寫1-2句每日感受..." onchange="saveReflection()"></textarea>
+        </div>
+    </div>
+
+    <div class="footer-btns">
+        <button class="btn-reset" onclick="resetAll()">重置所有數據</button>
+    </div>
+</div>
+
+<script>
+    const TOTAL_DAYS = 33;
+    const EXERCISE_PLAN = ["超慢跑", "瑜珈", "超慢跑", "瑜珈", "超慢跑", "彼拉提斯", "慢跑"];
+    const TASK_TITLES = [
+        {title: "早睡早起", detail: "7:00起床 / 00:00入睡"},
+        {title: "飲食計劃", detail: "不吃零食、不糖不酒不炸、原形食物"},
+        {title: "運動時間", detail: "至少30分鐘"},
+        {title: "飲水計劃", detail: "每日需喝 1820ml"},
+        {title: "體態紀錄", detail: "拍照記錄 (不計入達成率)"},
+        {title: "睡前唸書", detail: "《你的心，是最強大的魔法》"}
+    ];
+
+    let currentDay = 1;
+    let data = JSON.parse(localStorage.getItem('33HardData')) || {};
+
+    function init() {
+        const selector = document.getElementById('daySelector');
+        selector.innerHTML = '';
+        for (let i = 1; i <= TOTAL_DAYS; i++) {
+            const dot = document.createElement('div');
+            dot.className = `day-dot ${i === currentDay ? 'active' : ''} ${isDayDone(i) ? 'done' : ''}`;
+            dot.innerText = i;
+            dot.onclick = () => switchDay(i);
+            selector.appendChild(dot);
+        }
+        renderTasks();
+        updateStats();
+    }
+
+    function isDayDone(day) {
+        if (!data[day]) return false;
+        // 排除索引 4 (體態紀錄)，其餘 5 項加感受共 6 項
+        const requiredTasks = [0, 1, 2, 3, 5]; 
+        const tasksDone = requiredTasks.every(idx => data[day].tasks && data[day].tasks[idx]);
+        const reflectionDone = data[day].reflection && data[day].reflection.trim().length > 0;
+        return tasksDone && reflectionDone;
+    }
+
+    function switchDay(day) {
+        currentDay = day;
+        init();
+    }
+
+    function renderTasks() {
+        document.getElementById('currentDayTitle').innerText = `第 ${currentDay} 天挑戰`;
+        const list = document.getElementById('taskList');
+        list.innerHTML = '';
+        
+        const dayData = data[currentDay] || { tasks: Array(6).fill(false), reflection: "" };
+        
+        TASK_TITLES.forEach((item, idx) => {
+            let detail = item.detail;
+            if(idx === 2) detail = `${EXERCISE_PLAN[(currentDay-1)%7]} 30分鐘`; // 動態運動內容
+
+            const div = document.createElement('div');
+            div.className = 'task-item';
+            div.innerHTML = `
+                <input type="checkbox" ${dayData.tasks[idx] ? 'checked' : ''} onchange="toggleTask(${idx})">
+                <div class="task-text">
+                    <b>${item.title}</b>
+                    <small>${detail}</small>
+                </div>
+            `;
+            list.appendChild(div);
+        });
+
+        document.getElementById('dailyReflection').value = dayData.reflection || "";
+        updateDailyRate();
+    }
+
+    function toggleTask(idx) {
+        if (!data[currentDay]) data[currentDay] = { tasks: Array(6).fill(false), reflection: "" };
+        data[currentDay].tasks[idx] = !data[currentDay].tasks[idx];
+        save();
+        updateDailyRate();
+        updateStats();
+    }
+
+    function saveReflection() {
+        if (!data[currentDay]) data[currentDay] = { tasks: Array(6).fill(false), reflection: "" };
+        data[currentDay].reflection = document.getElementById('dailyReflection').value;
+        save();
+        updateDailyRate();
+        updateStats();
+    }
+
+    function updateDailyRate() {
+        if (!data[currentDay]) {
+            document.getElementById('dailyRateText').innerText = "本日達成率：0%";
+            return;
+        }
+        const tasks = data[currentDay].tasks;
+        // 計算：不含體態(idx 4)的其餘 5 項 + 感受
+        let count = [0, 1, 2, 3, 5].filter(idx => tasks[idx]).length;
+        if (data[currentDay].reflection.trim().length > 0) count++;
+        
+        const rate = Math.round((count / 6) * 100);
+        document.getElementById('dailyRateText').innerText = `本日達成率：${rate}%`;
+    }
+
+    function updateStats() {
+        let totalTasks = 33 * 6;
+        let doneCount = 0;
+        let fullDays = 0;
+
+        for (let i = 1; i <= TOTAL_DAYS; i++) {
+            if (data[i]) {
+                const dayTasks = [0, 1, 2, 3, 5].filter(idx => data[i].tasks[idx]).length;
+                const refl = data[i].reflection.trim().length > 0 ? 1 : 0;
+                doneCount += (dayTasks + refl);
+                if (dayTasks + refl === 6) fullDays++;
+            }
+        }
+
+        const totalPercent = Math.round((doneCount / totalTasks) * 100);
+        document.getElementById('totalPercent').innerText = totalPercent + '%';
+        document.getElementById('totalBar').style.width = totalPercent + '%';
+        document.getElementById('completedDaysCount').innerText = fullDays;
+    }
+
+    function save() {
+        localStorage.setItem('33HardData', JSON.stringify(data));
+        // 更新小圓點顏色
+        const dots = document.querySelectorAll('.day-dot');
+        if (isDayDone(currentDay)) dots[currentDay-1].classList.add('done');
+        else dots[currentDay-1].classList.remove('done');
+    }
+
+    function resetAll() {
+        if (confirm("確定要重置所有紀錄嗎？此動作無法復原。")) {
+            localStorage.removeItem('33HardData');
+            data = {};
+            currentDay = 1;
+            init();
+        }
+    }
+
+    init();
+</script>
+
+</body>
+</html>
