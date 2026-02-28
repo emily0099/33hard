@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>艾蜜莉的33Hard雲端挑戰</title>
+    <style>
+        :root {
+            --primary: #6c5ce7;
+            --secondary: #a29bfe;
+            --success: #00b894;
+            --bg: #f9f9fb;
+            --card-bg: #ffffff;
+        }
+
+        body {
+            font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif;
+            background-color: var(--bg);
+            margin: 0; padding: 20px;
+            display: flex; flex-direction: column; align-items: center;
+        }
+
+        .container { max-width: 600px; width: 100%; }
+
+        header { text-align: center; margin-bottom: 20px; }
+        h1 { color: var(--primary); margin-bottom: 5px; }
+        .sync-status { font-size: 0.8rem; color: #888; margin-top: 5px; min-height: 1.2em; }
+
+        .stats-box {
+            background: var(--primary); color: white;
+            padding: 20px; border-radius: 15px; margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(108, 92, 231, 0.3);
+        }
+
+        .progress-container { background: rgba(255,255,255,0.2); border-radius: 10px; height: 12px; margin: 10px 0; }
+        .progress-bar { background: var(--success); height: 100%; border-radius: 10px; width: 0%; transition: 0.5s; }
+
+        .day-selector {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(45px, 1fr));
+            gap: 8px; margin-bottom: 20px;
+        }
+
+        .day-dot {
+            aspect-ratio: 1; border: 1px solid #ddd; border-radius: 8px;
+            background: white; cursor: pointer; display: flex;
+            align-items: center; justify-content: center; font-size: 0.8rem;
+            transition: all 0.2s;
+        }
+
+        .day-dot.active { border: 2px solid var(--primary); font-weight: bold; transform: scale(1.1); box-shadow: 0 2px 8px rgba(108, 92, 231, 0.2); }
+        .day-dot.done { background: var(--success); color: white; border-color: var(--success); }
+
+        .task-card {
+            background: white; padding: 20px; border-radius: 15px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            margin-bottom: 30px;
+        }
+
+        .task-item {
+            display: flex; align-items: flex-start; margin-bottom: 15px;
+            padding-bottom: 10px; border-bottom: 1px solid #f0f0f0;
+        }
+
+        .task-item input { margin-right: 15px; margin-top: 5px; transform: scale(1.3); cursor: pointer; }
+        .task-text b { display: block; color: var(--primary); margin-bottom: 2px; }
+        .task-text small { color: #888; display: block; }
+
+        textarea { width: 100%; border: 1px solid #ddd; border-radius: 8px; padding: 10px; box-sizing: border-box; font-size: 1rem; min-height: 80px; }
+
+        /* 同步動畫 */
+        @keyframes blink { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        .syncing { animation: blink 1s infinite; color: var(--primary) !important; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>艾蜜莉的33Hard</h1>
+        <p id="syncText" class="sync-status">雲端同步就緒</p>
+    </header>
+
+    <div class="stats-box">
+        <div>總挑戰進度：<span id="totalPercent">0%</span></div>
+        <div class="progress-container"><div id="totalBar" class="progress-bar"></div></div>
+        <div style="font-size: 0.9rem;">全勤天數：<span id="completedDaysCount">0</span> / 33</div>
+    </div>
+
+    <div id="daySelector" class="day-selector"></div>
+
+    <div class="task-card">
+        <h3 id="currentDayTitle">載入中...</h3>
+        <p id="dailyRateText" style="color: var(--success); font-weight: bold; margin-top: -10px;">本日達成率：0%</p>
+        
+        <div id="taskList"></div>
+
+        <div style="margin-top: 15px;">
+            <b>每日一句感受</b>
+            <textarea id="dailyReflection" placeholder="寫下今天的感受..." onblur="saveReflection()"></textarea>
+        </div>
+    </div>
+</div>
+
+<script>
+    const GAS_URL = "https://script.google.com/macros/s/AKfycbz-P5kRi9ZqctT34nRNxqOX2Ea_2cOB9j_wyrGnB9esILJScwCqjVPsidmFN1HDFjX-/exec";
+    const TOTAL_DAYS = 33;
+    const EXERCISE_PLAN = ["超慢跑", "瑜珈", "超慢跑", "瑜珈", "超慢跑", "彼拉提斯", "慢跑"];
+    const TASK_TITLES = [
+        {title: "早睡早起", detail: "7:00起床 / 00:00入睡"},
+        {title: "飲食計劃", detail: "不吃零食、原形食物"},
+        {title: "運動時間", detail: "至少30分鐘"},
+        {title: "飲水計劃", detail: "每日 1820ml"},
+        {title: "體態紀錄", detail: "拍照記錄 (不計入達成率)"},
+        {title: "睡前唸書", detail: "《你的心，是最強大的魔法》"}
+    ];
+
+    let currentDay = 1;
+    let data = JSON.parse(localStorage.getItem('33HardData')) || {};
+
+    function init() {
+        const selector = document.getElementById('daySelector');
+        selector.innerHTML = '';
+        for (let i = 1; i <= TOTAL_DAYS; i++) {
+            const dot = document.createElement('div');
+            dot.className = `day-dot ${i === currentDay ? 'active' : ''} ${isDayDone(i) ? 'done' : ''}`;
+            dot.innerText = i;
+            dot.onclick = () => switchDay(i);
+            selector.appendChild(dot);
+        }
+        renderTasks();
+        updateStats();
+    }
+
+    function isDayDone(day) {
+        if (!data[day]) return false;
+        const requiredTasks = [0, 1, 2, 3, 5]; 
+        const tasksDone = requiredTasks.every(idx => data[day].tasks && data[day].tasks[idx]);
+        const reflectionDone = data[day].reflection && data[day].reflection.trim().length > 0;
+        return tasksDone && reflectionDone;
+    }
+
+    function switchDay(day) {
+        currentDay = day;
+        init();
+    }
+
+    function renderTasks() {
+        document.getElementById('currentDayTitle').innerText = `第 ${currentDay} 天挑戰`;
+        const list = document.getElementById('taskList');
+        list.innerHTML = '';
+        
+        const dayData = data[currentDay] || { tasks: Array(6).fill(false), reflection: "" };
+        
+        TASK_TITLES.forEach((item, idx) => {
+            let detail = item.detail;
+            if(idx === 2) detail = `${EXERCISE_PLAN[(currentDay-1)%7]} 30分鐘`;
+
+            const div = document.createElement('div');
+            div.className = 'task-item';
+            div.innerHTML = `
+                <input type="checkbox" ${dayData.tasks[idx] ? 'checked' : ''} onchange="toggleTask(${idx})">
+                <div class="task-text">
+                    <b>${item.title}</b>
+                    <small>${detail}</small>
+                </div>
+            `;
+            list.appendChild(div);
+        });
+
+        document.getElementById('dailyReflection').value = dayData.reflection || "";
+        updateDailyRate();
+    }
+
+    function toggleTask(idx) {
+        if (!data[currentDay]) data[currentDay] = { tasks: Array(6).fill(false), reflection: "" };
+        data[currentDay].tasks[idx] = !data[currentDay].tasks[idx];
+        saveAndSync();
+    }
+
+    function saveReflection() {
+        if (!data[currentDay]) data[currentDay] = { tasks: Array(6).fill(false), reflection: "" };
+        const newReflection = document.getElementById('dailyReflection').value;
+        if (data[currentDay].reflection !== newReflection) {
+            data[currentDay].reflection = newReflection;
+            saveAndSync();
+        }
+    }
+
+    function saveAndSync() {
+        localStorage.setItem('33HardData', JSON.stringify(data));
+        updateDailyRate();
+        updateStats();
+        
+        const dots = document.querySelectorAll('.day-dot');
+        if (isDayDone(currentDay)) dots[currentDay-1].classList.add('done');
+        else dots[currentDay-1].classList.remove('done');
+
+        const syncText = document.getElementById('syncText');
+        syncText.innerText = "☁️ 正在同步至試算表...";
+        syncText.classList.add('syncing');
+
+        const dayData = data[currentDay];
+        fetch(GAS_URL, {
+            method: "POST",
+            body: JSON.stringify({
+                day: currentDay,
+                tasks: dayData.tasks,
+                reflection: dayData.reflection
+            }),
+            mode: 'no-cors'
+        }).then(() => {
+            syncText.innerText = "✅ 同步成功 " + new Date().toLocaleTimeString();
+            syncText.classList.remove('syncing');
+        }).catch(err => {
+            syncText.innerText = "❌ 同步失敗，請檢查網路";
+            syncText.classList.remove('syncing');
+        });
+    }
+
+    function updateDailyRate() {
+        if (!data[currentDay]) {
+            document.getElementById('dailyRateText').innerText = "本日達成率：0%";
+            return;
+        }
+        const tasks = data[currentDay].tasks;
+        let count = [0, 1, 2, 3, 5].filter(idx => tasks[idx]).length;
+        if (data[currentDay].reflection.trim().length > 0) count++;
+        const rate = Math.round((count / 6) * 100);
+        document.getElementById('dailyRateText').innerText = `本日達成率：${rate}%`;
+    }
+
+    function updateStats() {
+        let totalTasks = 33 * 6;
+        let doneCount = 0;
+        let fullDays = 0;
+        for (let i = 1; i <= TOTAL_DAYS; i++) {
+            if (data[i]) {
+                const dayTasks = [0, 1, 2, 3, 5].filter(idx => data[i].tasks[idx]).length;
+                const refl = data[i].reflection.trim().length > 0 ? 1 : 0;
+                doneCount += (dayTasks + refl);
+                if (dayTasks + refl === 6) fullDays++;
+            }
+        }
+        const totalPercent = Math.round((doneCount / totalTasks) * 100);
+        document.getElementById('totalPercent').innerText = totalPercent + '%';
+        document.getElementById('totalBar').style.width = totalPercent + '%';
+        document.getElementById('completedDaysCount').innerText = fullDays;
+    }
+
+    init();
+</script>
+
+</body>
+</html>
